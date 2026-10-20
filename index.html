@@ -1,8 +1,9 @@
 <!DOCTYPE html>
 <html>
 <head>
-<base target="_top">
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CrowMur</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -104,7 +105,7 @@
 
   /* forms */
   label{display:block;font-weight:600;font-size:14px;margin:14px 0 6px}
-  input[type=text],input[type=number],select,textarea{width:100%;padding:10px 13px;border:1.5px solid var(--line);border-radius:12px;background:#fff}
+  input[type=text],input[type=password],input[type=number],select,textarea{width:100%;padding:10px 13px;border:1.5px solid var(--line);border-radius:12px;background:#fff}
   input:focus,select:focus,textarea:focus{border-color:var(--violet);outline:none;box-shadow:0 0 0 3px rgba(122,92,250,.15)}
   textarea{min-height:120px;resize:vertical;line-height:1.55}
   .hint{color:var(--muted);font-size:13px;margin-top:6px}
@@ -195,10 +196,24 @@
       <button data-t="message"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M4 7l8 6 8-6"/></svg><div><b>Message</b><span>Email &amp; follow-ups</span></div></button>
       <button data-t="settings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/></svg><div><b>Settings</b><span>You &amp; sending</span></div></button>
     </nav>
-    <div class="whoami" id="who"></div>
+    <div class="whoami"><div id="who"></div><a href="#" id="lockBtn" style="color:#c9c2e3">Lock this device</a></div>
   </aside>
 
   <main class="sky">
+    <section class="tab" id="t-key">
+      <div class="nest-hero">
+        <span class="crow-slot" data-size="180"></span>
+        <div class="bubble">
+          <p>Caw! Enter your CrowMur key to open your nest.</p>
+          <div class="sub" id="keyMsg">You only need to do this once on each device. The key keeps strangers from sending emails from your Gmail.</div>
+          <label for="keyInput">Access key</label>
+          <input type="password" id="keyInput" placeholder="crow-…" autocomplete="current-password">
+          <div class="controls"><button class="btn primary" id="keyBtn">Open CrowMur</button></div>
+          <p class="hint" style="font-family:Figtree,Arial,sans-serif;font-size:13px;margin-top:12px">Find your key in Apps Script: run <b>showAccessKey</b>, then look in the Execution log.</p>
+        </div>
+      </div>
+    </section>
+
     <div class="loading" id="loading"><div><span class="crow-slot fly" data-size="120"></span><p>Building your nest…</p></div></div>
 
     <!-- NEST -->
@@ -385,11 +400,36 @@ function crowMood(mood){
 placeCrows();
 
 function toast(msg,err){const t=$('toast');t.textContent=msg;t.className='toast'+(err?' err':'');t.style.display='block';clearTimeout(t._h);t._h=setTimeout(()=>t.style.display='none',5000);}
+/* ---------- connection to Code.gs (Apps Script) ---------- */
+const API_URL='https://script.google.com/macros/s/AKfycbzWDQ-Qy11kGWfcwSFXx-eqmfzabgojjzifcskrZcVHpyJozcnQt5_9UsumqrqINIow/exec';
+let KEY='';
+try{ KEY=localStorage.getItem('crowmurKey')||''; }catch(e){}
+function saveKey(k){ KEY=k; try{ k?localStorage.setItem('crowmurKey',k):localStorage.removeItem('crowmurKey'); }catch(e){} }
+async function api(fn,args){
+  let res;
+  try{
+    res=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({key:KEY,action:fn,args:args||[]})});
+  }catch(e){ throw new Error('Can\'t reach Code.gs. In Apps Script, the deployment must be set to Execute as: Me and Who has access: Anyone.'); }
+  let j; try{ j=await res.json(); }catch(e){ throw new Error('Code.gs sent back something unexpected. Make sure you pasted the newest Code.gs and deployed a new version.'); }
+  if(!j.ok){ const err=new Error(j.error||'Something went wrong.'); err.auth=j.auth===false; throw err; }
+  return j.data;
+}
 function call(fn,args,ok,btn){
   if(btn) btn.disabled=true;
-  google.script.run.withSuccessHandler(r=>{if(btn)btn.disabled=false; ok&&ok(r);})
-    .withFailureHandler(e=>{if(btn)btn.disabled=false; toast(e.message||String(e),true);})[fn].apply(null,args||[]);
+  api(fn,args).then(r=>{ if(btn)btn.disabled=false; ok&&ok(r); })
+    .catch(e=>{ if(btn)btn.disabled=false; if(e.auth){ saveKey(''); showKeyScreen('That key didn\'t work. Check it and try again.'); } else toast(e.message,true); });
 }
+function showKeyScreen(msg){
+  $('loading').style.display='none';
+  document.querySelector('.perch nav').style.visibility='hidden';
+  showTab('key'); if(msg){ $('keyMsg').textContent=msg; } $('keyInput').focus();
+}
+$('keyBtn').onclick=()=>{
+  const k=$('keyInput').value.trim(); if(!k) return toast('Paste your access key first.',true);
+  saveKey(k); call('getState',[],s=>{ load(s); toast('Welcome to your nest!'); },$('keyBtn'));
+};
+$('keyInput').onkeydown=e=>{ if(e.key==='Enter') $('keyBtn').click(); };
+$('lockBtn').onclick=e=>{ e.preventDefault(); saveKey(''); S=null; $('keyInput').value=''; showKeyScreen('Locked. Enter your key to open CrowMur again.'); };
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
 /* ---------- tabs ---------- */
@@ -403,8 +443,9 @@ $('nav').addEventListener('click',e=>{const b=e.target.closest('button'); if(b) 
 /* ---------- load ---------- */
 function load(state){
   S=state;
-  if($('loading').style.display!=='none'){ $('loading').style.display='none'; showTab('nest'); }
-  $('who').textContent='Signed in as '+S.user;
+  const cur=document.querySelector('.tab.on');
+  if(!cur || cur.id==='t-key' || $('loading').style.display!=='none'){ $('loading').style.display='none'; document.querySelector('.perch nav').style.visibility=''; showTab('nest'); }
+  $('who').textContent='Sending from '+S.user;
   fillForms(); renderNest(); renderLeads();
   if(S.message) toast(S.message);
 }
@@ -609,10 +650,10 @@ $('startBtn').onclick=()=>call('startCampaign',[],s=>{load(s);toast('Sending sta
 $('pauseBtn').onclick=()=>call('pauseCampaign',[],s=>{load(s);toast('Sending paused.');},$('pauseBtn'));
 $('refreshBtn').onclick=()=>call('refreshStatuses',[],load,$('refreshBtn'));
 
-call('getState',[],load);
-setInterval(()=>{ if(!document.hidden && S) google.script.run.withSuccessHandler(s=>{
+if(KEY) call('getState',[],load); else showKeyScreen();
+setInterval(()=>{ if(!document.hidden && S && KEY) api('getState').then(s=>{
   ['stats','sentToday','running','inWindow','leads','shiny','memory'].forEach(k=>S[k]=s[k]); renderNest(); renderLeads();
-}).getState(); },120000);
+}).catch(()=>{}); },120000);
 </script>
 </body>
 </html>
