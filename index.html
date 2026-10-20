@@ -47,6 +47,9 @@
   .whoami{margin-top:auto;font-size:12px;color:#b8b0d6;word-break:break-all}
   .sky{padding:28px 32px 70px;max-width:1080px;width:100%}
   .tab{display:none}.tab.on{display:block}
+  .demo-banner{display:none;background:var(--gold-soft);border:1.5px solid #f2d79a;color:var(--ink);border-radius:14px;padding:10px 16px;margin-bottom:20px;font-weight:600;font-size:14px}
+  body.demo .demo-banner{display:block}
+  body.demo #lockBtn{display:none}
 
   /* ---------- the crow ---------- */
   .crow .eye-closed,.crow .zzz{display:none}
@@ -200,6 +203,7 @@
   </aside>
 
   <main class="sky">
+    <div class="demo-banner">You're viewing a demo with sample data. Nothing is sent, so click around freely.</div>
     <section class="tab" id="t-key">
       <div class="nest-hero">
         <span class="crow-slot" data-size="180"></span>
@@ -405,7 +409,69 @@ const API_URL='https://script.google.com/macros/s/AKfycbzWDQ-Qy11kGWfcwSFXx-eqmf
 let KEY='';
 try{ KEY=localStorage.getItem('crowmurKey')||''; }catch(e){}
 function saveKey(k){ KEY=k; try{ k?localStorage.setItem('crowmurKey',k):localStorage.removeItem('crowmurKey'); }catch(e){} }
+/* ---------- DEMO MODE (add ?demo=1 to the link): sample data, nothing is sent ---------- */
+const DEMO=new URLSearchParams(location.search).has('demo');
+const D=(()=>{
+  const ago=d=>{const t=new Date(Date.now()-d*864e5);return t.toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});};
+  const L=(i,email,company,first,status,sent,notes,replyType,extra)=>Object.assign({id:'d'+i,email,company,first,status,sentAt:sent,notes:notes||'',replyType:replyType||'',opening:'I came across '+company+' and loved how you run things.'},extra||{});
+  return {
+    settings:{yourName:'Alex Rivera',businessName:'Rivera Systems',signature:'At your service,\n\nAlex Rivera\nRivera Systems',mailingAddress:'123 Sample Street, Austin, TX',dailyLimit:15,perRun:3,timezone:'America/Chicago',startHour:8,endHour:16,weekdaysOnly:true,followUps:true,fu1Days:3,fu2Days:7,
+      subjects:'Quick question for {{company}}\nIdea for {{company}}',
+      body:'Hi {{first_name|there}},\n\n{{opening}}\n\nI build simple automations that take scheduling, reminders and paperwork off your team\'s plate.\n\nWould a quick 15-minute call this week make sense?',
+      fu1Body:'Hi {{first_name|there}},\n\nJust bringing this back to the top of your inbox. Would it be worth a quick chat?',
+      fu2Body:'Hi {{first_name|there}},\n\nI\'ll close the loop here so I don\'t clutter your inbox. If this becomes a priority later, just reply.'},
+    leads:[
+      L(1,'jo@northwindhvac.com','Northwind Heating & Air','Jo','Replied',ago(4),'Yes, this sounds great. Can we talk Thursday at 2?','Interested',{repliedAt:ago(1)}),
+      L(2,'office@bayparkapts.com','Bay Park Apartments','Priya','Replied',ago(5),'How much would a tenant request portal cost?','Interested',{repliedAt:ago(2)}),
+      L(3,'care@sunrisehomehealth.com','Sunrise Home Health','','Away',ago(3),'Away until next Monday. Follow-up waits until they\'re back.','Out of office'),
+      L(4,'hello@maplewellness.com','Maple Wellness Clinic','Dana','Follow-up 1 sent',ago(4)),
+      L(5,'info@cedarlinehvac.com','Cedarline HVAC','Marco','Sent',ago(1)),
+      L(6,'team@harborpm.com','Harbor Property Group','','Sent',ago(1)),
+      L(7,'admin@oakfamilycare.com','Oak Family Care','Lee','Replied',ago(6),'Thanks, but we\'re all set for now.','Not interested',{repliedAt:ago(3)}),
+      L(8,'info@pinecrestrentals.com','Pinecrest Rentals','Sam','Bounced',ago(2),'Email bounced'),
+      L(9,'frontdesk@brightsmile.com','Bright Smile Dental','Ana','Queued',''),
+      L(10,'service@summitair.com','Summit Air Services','Ken','Queued',''),
+      L(11,'office@greenleafpm.com','Greenleaf Property Management','Rita','Queued',''),
+      L(12,'hi@lakesidept.com','Lakeside Physical Therapy','Ben','Queued',''),
+      L(13,'contact@ridgeviewhomes.com','Ridgeview Homes','','Queued','')
+    ],
+    memory:3, running:true, sentToday:6
+  };
+})();
+function demoState(){
+  const st={total:D.leads.length,queued:0,sent:0,fu1:0,done:0,replied:0,interested:0,away:0,bounced:0,unsubscribed:0,skipped:0};
+  D.leads.forEach(l=>{({'Queued':()=>st.queued++,'Sent':()=>st.sent++,'Follow-up 1 sent':()=>st.fu1++,'Done':()=>st.done++,'Replied':()=>st.replied++,'Bounced':()=>st.bounced++,'Unsubscribed':()=>st.unsubscribed++,'Away':()=>{st.away++;st.sent++;},'Skip':()=>st.skipped++}[l.status]||(()=>{}))(); if(l.replyType==='Interested') st.interested++;});
+  const shiny=D.leads.filter(l=>l.status==='Replied'&&l.replyType!=='Not interested').map(l=>({company:l.company,email:l.email,type:l.replyType||'Replied',snippet:l.notes,link:'',when:l.repliedAt||''}));
+  const first=D.leads[0];
+  return {user:'demo@crowmur.app',settings:D.settings,stats:st,sentToday:D.sentToday,running:D.running,inWindow:true,leads:D.leads.slice().reverse(),shiny,memory:D.memory,sheetUrl:'#',
+    sample:first?{email:first.email,company:first.company,first_name:first.first,opening:first.opening}:null};
+}
+async function demoApi(fn,args){
+  await new Promise(r=>setTimeout(r,250));
+  const a=args||[];
+  if(fn==='saveSettings') Object.assign(D.settings,a[0]);
+  if(fn==='importLeads'){
+    const have=new Set(D.leads.map(l=>l.email.toLowerCase())); let added=0,dupes=0,invalid=0;
+    (a[0]||[]).forEach((o,i)=>{const e=String(o.email||'').trim(); if(!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e)){invalid++;return;} if(have.has(e.toLowerCase())){dupes++;return;} have.add(e.toLowerCase()); D.leads.push({id:'u'+Date.now()+i,email:e,company:o.company||'',first:o.first_name||'',opening:o.opening||'',status:'Queued',sentAt:'',notes:'',replyType:''}); added++;});
+    return {added,dupes,invalid,remembered:0,state:demoState()};
+  }
+  if(fn==='setLeadStatus'){ const ids=new Set(a[0]); if(a[1]==='Removed') D.leads=D.leads.filter(l=>!ids.has(l.id)); else D.leads.forEach(l=>{ if(ids.has(l.id)) l.status=a[1]; }); }
+  if(fn==='clearAllLeads') D.leads=[];
+  if(fn==='forgetMemory') D.memory=0;
+  if(fn==='sendTest') return 'Demo mode: no email was sent. In the real app, this emails you a sample.';
+  if(fn==='startCampaign') D.running=true;
+  if(fn==='pauseCampaign') D.running=false;
+  if(fn==='refreshStatuses'){
+    const l=D.leads.find(x=>x.status==='Sent'||x.status==='Follow-up 1 sent');
+    const s=demoState();
+    if(l){ l.status='Replied'; l.replyType='Interested'; l.notes='Interesting! Are you free for a quick call tomorrow morning?'; l.repliedAt='Just now'; D.memory++; const n=demoState(); n.message='Caw! '+l.company+' just replied, and they\'re interested.'; return n; }
+    s.message='No new replies yet. The crow keeps watching.'; return s;
+  }
+  return demoState();
+}
+
 async function api(fn,args){
+  if(DEMO) return demoApi(fn,args);
   let res;
   try{
     res=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({key:KEY,action:fn,args:args||[]})});
@@ -650,8 +716,9 @@ $('startBtn').onclick=()=>call('startCampaign',[],s=>{load(s);toast('Sending sta
 $('pauseBtn').onclick=()=>call('pauseCampaign',[],s=>{load(s);toast('Sending paused.');},$('pauseBtn'));
 $('refreshBtn').onclick=()=>call('refreshStatuses',[],load,$('refreshBtn'));
 
-if(KEY) call('getState',[],load); else showKeyScreen();
-setInterval(()=>{ if(!document.hidden && S && KEY) api('getState').then(s=>{
+if(DEMO){ document.body.classList.add('demo'); call('getState',[],load); }
+else if(KEY) call('getState',[],load); else showKeyScreen();
+setInterval(()=>{ if(!DEMO && !document.hidden && S && KEY) api('getState').then(s=>{
   ['stats','sentToday','running','inWindow','leads','shiny','memory'].forEach(k=>S[k]=s[k]); renderNest(); renderLeads();
 }).catch(()=>{}); },120000);
 </script>
